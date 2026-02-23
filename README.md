@@ -1,16 +1,81 @@
-# React + Vite
+# Kanban Board
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A full-featured project management board with real-time cross-device sync.
 
-Currently, two official plugins are available:
+**Live:** [kanban-board-smoky-two.vercel.app](https://kanban-board-smoky-two.vercel.app)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+- 📋 Drag-and-drop cards between columns
+- ✏️ Add, edit, and delete cards with titles and descriptions
+- 🎨 Customizable columns with color picker
+- 🔄 Real-time sync across devices via Supabase
+- 🔐 User authentication (email/password)
+- 🌙 Dark theme UI
+- 📱 Fully responsive
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Tech Stack
 
-## Expanding the ESLint configuration
+- **Frontend:** React + Vite + Tailwind CSS
+- **Backend:** Supabase (PostgreSQL + Auth + Realtime)
+- **Hosting:** Vercel
+- **Drag & Drop:** @hello-pangea/dnd
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- A Supabase project
+
+### Setup
+
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/toddellis-clawd/kanban-board.git
+   cd kanban-board
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Create a `.env` file:
+   ```
+   VITE_SUPABASE_URL=your-supabase-url
+   VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+   ```
+
+4. Run the SQL migration in your Supabase SQL Editor:
+   ```bash
+   cat supabase/migration.sql
+   ```
+
+5. Start the dev server:
+   ```bash
+   npm run dev
+   ```
+
+## Database Schema
+
+- **boards** — One board per user
+- **columns** — Ordered columns with custom colors
+- **cards** — Cards with title, description, and position
+- **RLS policies** — Users can only access their own data
+
+## Deployment
+
+Deployed automatically to Vercel. Push to `main` to deploy.
+
+```bash
+npx vercel --prod
+```
+
+## License
+
+MIT
+
+---
+
+Built with 🦇 by [360 AI Solutions](https://360-ai-solutions.vercel.app)
