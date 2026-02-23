@@ -6,7 +6,7 @@ import CardModal from './CardModal';
 import ColumnModal from './ColumnModal';
 import ConfirmModal from './ConfirmModal';
 
-export default function Board({ data, setData }) {
+export default function Board({ data, setData, boardId, supabase }) {
   const [cardModal, setCardModal] = useState(null);
   // { mode: 'add', columnId } | { mode: 'edit', columnId, card }
 
@@ -25,48 +25,97 @@ export default function Board({ data, setData }) {
       source.index === destination.index
     ) return;
 
-    setData((prev) => {
-      const next = { ...prev, cards: { ...prev.cards } };
+    // Compute new state up-front so we can read it for Supabase updates
+    const next = { ...data, cards: { ...data.cards } };
+    const srcCards = [...(next.cards[source.droppableId] || [])];
+    const [moved] = srcCards.splice(source.index, 1);
 
-      const srcCards = [...(next.cards[source.droppableId] || [])];
-      const [moved] = srcCards.splice(source.index, 1);
+    if (source.droppableId === destination.droppableId) {
+      srcCards.splice(destination.index, 0, moved);
+      next.cards[source.droppableId] = srcCards;
+    } else {
+      const dstCards = [...(next.cards[destination.droppableId] || [])];
+      dstCards.splice(destination.index, 0, moved);
+      next.cards[source.droppableId] = srcCards;
+      next.cards[destination.droppableId] = dstCards;
+    }
 
-      if (source.droppableId === destination.droppableId) {
-        srcCards.splice(destination.index, 0, moved);
-        next.cards[source.droppableId] = srcCards;
-      } else {
-        const dstCards = [...(next.cards[destination.droppableId] || [])];
-        dstCards.splice(destination.index, 0, moved);
-        next.cards[source.droppableId] = srcCards;
-        next.cards[destination.droppableId] = dstCards;
-      }
-      return next;
-    });
+    setData(next);
+
+    // Persist updated positions to Supabase (fire-and-forget)
+    const updates = (next.cards[destination.droppableId] || []).map((card, idx) =>
+      supabase.from('cards').update({ position: idx, column_id: destination.droppableId }).eq('id', card.id)
+    );
+    if (source.droppableId !== destination.droppableId) {
+      (next.cards[source.droppableId] || []).forEach((card, idx) => {
+        updates.push(
+          supabase.from('cards').update({ position: idx }).eq('id', card.id)
+        );
+      });
+    }
+    Promise.all(updates).catch((err) => console.error('Error updating card positions:', err));
   };
 
   // ── Cards ────────────────────────────────────────────────────
   const handleSaveCard = ({ title, description }) => {
     if (cardModal.mode === 'add') {
-      const newCard = { id: uuidv4(), title, description, createdAt: Date.now() };
+      const newCard = {
+        id: uuidv4(),
+        title,
+        description: description || '',
+        createdAt: Date.now(),
+      };
+      const position = (data.cards[cardModal.columnId] || []).length;
+      const columnId = cardModal.columnId;
+
+      // Optimistic update
       setData((prev) => ({
         ...prev,
         cards: {
           ...prev.cards,
-          [cardModal.columnId]: [...(prev.cards[cardModal.columnId] || []), newCard],
+          [columnId]: [...(prev.cards[columnId] || []), newCard],
         },
       }));
+      setCardModal(null);
+
+      // Persist
+      supabase
+        .from('cards')
+        .insert({
+          id: newCard.id,
+          column_id: columnId,
+          title,
+          description: description || '',
+          position,
+          created_at: new Date(newCard.createdAt).toISOString(),
+        })
+        .then(({ error }) => {
+          if (error) console.error('Error adding card:', error);
+        });
     } else {
+      const { columnId, card } = cardModal;
+
+      // Optimistic update
       setData((prev) => ({
         ...prev,
         cards: {
           ...prev.cards,
-          [cardModal.columnId]: prev.cards[cardModal.columnId].map((c) =>
-            c.id === cardModal.card.id ? { ...c, title, description } : c
+          [columnId]: prev.cards[columnId].map((c) =>
+            c.id === card.id ? { ...c, title, description: description || '' } : c
           ),
         },
       }));
+      setCardModal(null);
+
+      // Persist
+      supabase
+        .from('cards')
+        .update({ title, description: description || '' })
+        .eq('id', card.id)
+        .then(({ error }) => {
+          if (error) console.error('Error updating card:', error);
+        });
     }
-    setCardModal(null);
   };
 
   const handleEditCard = (columnId, card) => {
@@ -79,6 +128,7 @@ export default function Board({ data, setData }) {
 
   const confirmDeleteCard = () => {
     const { columnId, cardId } = confirmModal;
+
     setData((prev) => ({
       ...prev,
       cards: {
@@ -87,25 +137,53 @@ export default function Board({ data, setData }) {
       },
     }));
     setConfirmModal(null);
+
+    supabase
+      .from('cards')
+      .delete()
+      .eq('id', cardId)
+      .then(({ error }) => {
+        if (error) console.error('Error deleting card:', error);
+      });
   };
 
   // ── Columns ──────────────────────────────────────────────────
   const handleSaveColumn = ({ title, color }) => {
     if (columnModal.mode === 'add') {
       const newId = uuidv4();
+      const position = data.columns.length;
+
       setData((prev) => ({
         columns: [...prev.columns, { id: newId, title, color }],
         cards: { ...prev.cards, [newId]: [] },
       }));
+      setColumnModal(null);
+
+      supabase
+        .from('columns')
+        .insert({ id: newId, board_id: boardId, title, color, position })
+        .then(({ error }) => {
+          if (error) console.error('Error adding column:', error);
+        });
     } else {
+      const { column } = columnModal;
+
       setData((prev) => ({
         ...prev,
         columns: prev.columns.map((col) =>
-          col.id === columnModal.column.id ? { ...col, title, color } : col
+          col.id === column.id ? { ...col, title, color } : col
         ),
       }));
+      setColumnModal(null);
+
+      supabase
+        .from('columns')
+        .update({ title, color })
+        .eq('id', column.id)
+        .then(({ error }) => {
+          if (error) console.error('Error updating column:', error);
+        });
     }
-    setColumnModal(null);
   };
 
   const handleDeleteColumn = (columnId) => {
@@ -114,6 +192,7 @@ export default function Board({ data, setData }) {
 
   const confirmDeleteColumn = () => {
     const { columnId } = confirmModal;
+
     setData((prev) => {
       const { [columnId]: _, ...restCards } = prev.cards;
       return {
@@ -122,9 +201,17 @@ export default function Board({ data, setData }) {
       };
     });
     setConfirmModal(null);
+
+    // ON DELETE CASCADE handles cards automatically
+    supabase
+      .from('columns')
+      .delete()
+      .eq('id', columnId)
+      .then(({ error }) => {
+        if (error) console.error('Error deleting column:', error);
+      });
   };
 
-  // Find columnId for a card being edited (needed when onEdit is called from KanbanCard)
   const findColumnForCard = (cardId) => {
     for (const [colId, cards] of Object.entries(data.cards)) {
       if (cards.some((c) => c.id === cardId)) return colId;
@@ -168,12 +255,12 @@ export default function Board({ data, setData }) {
                 width: '220px',
                 whiteSpace: 'nowrap',
               }}
-              onMouseEnter={e => {
+              onMouseEnter={(e) => {
                 e.currentTarget.style.backgroundColor = '#1a1d27';
                 e.currentTarget.style.borderColor = '#3e4565';
                 e.currentTarget.style.color = '#e8eaf0';
               }}
-              onMouseLeave={e => {
+              onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = 'transparent';
                 e.currentTarget.style.borderColor = '#2e3349';
                 e.currentTarget.style.color = '#8b90a7';
@@ -212,7 +299,7 @@ export default function Board({ data, setData }) {
       {confirmModal?.type === 'column' && (
         <ConfirmModal
           title="Delete Column"
-          message={`Are you sure you want to delete this column and all its cards? This action cannot be undone.`}
+          message="Are you sure you want to delete this column and all its cards? This action cannot be undone."
           onConfirm={confirmDeleteColumn}
           onClose={() => setConfirmModal(null)}
         />
